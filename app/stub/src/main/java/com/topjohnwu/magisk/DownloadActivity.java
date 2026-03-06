@@ -9,12 +9,10 @@ import static com.topjohnwu.magisk.R.string.upgrade_msg;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.loader.ResourcesLoader;
 import android.content.res.loader.ResourcesProvider;
-import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
@@ -23,21 +21,20 @@ import android.system.OsConstants;
 import android.util.Log;
 import android.view.ContextThemeWrapper;
 
+import android.net.Uri;
+
 import com.topjohnwu.magisk.net.Networking;
 import com.topjohnwu.magisk.net.Request;
 import com.topjohnwu.magisk.utils.APKInstall;
-import com.topjohnwu.superuser.Shell;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.OutputStream;
 import java.util.zip.InflaterInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
-import android.net.Uri
 
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
@@ -55,12 +52,11 @@ public class DownloadActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         themed = new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault);
 
-        // Only download and dynamic load full APK if hidden
         dynLoad = !getPackageName().equals(BuildConfig.APPLICATION_ID);
 
-        // Inject resources
         try {
             loadResources();
         } catch (Exception e) {
@@ -107,49 +103,79 @@ public class DownloadActivity extends Activity {
     }
 
     private void dlAPK() {
-        var intent = Intent(Intent.ACTION_VIEW)
-        intent.data = Uri.parse(BuildConfig.APK_URL)
-        startActivity(intent)
-        finish()
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setData(Uri.parse(BuildConfig.APK_URL));
+        startActivity(intent);
+        finish();
     }
 
     private void decryptResources(OutputStream out) throws Exception {
+
         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+
         SecretKey key = new SecretKeySpec(Bytes.key(), "AES");
         IvParameterSpec iv = new IvParameterSpec(Bytes.iv());
+
         cipher.init(Cipher.DECRYPT_MODE, key, iv);
-        var is = new InflaterInputStream(new CipherInputStream(
-                new ByteArrayInputStream(Bytes.res()), cipher));
-        try (is; out) {
-            APKInstall.transfer(is, out);
+
+        InflaterInputStream is = new InflaterInputStream(
+                new CipherInputStream(
+                        new ByteArrayInputStream(Bytes.res()),
+                        cipher
+                )
+        );
+
+        try (InflaterInputStream in = is; OutputStream output = out) {
+            APKInstall.transfer(in, output);
         }
     }
 
     private void loadResources() throws Exception {
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            var fd = Os.memfd_create("res", 0);
+
+            int fd = Os.memfd_create("res", 0);
+
             try {
+
                 decryptResources(new FileOutputStream(fd));
+
                 Os.lseek(fd, 0, OsConstants.SEEK_SET);
-                var loader = new ResourcesLoader();
-                try (var pfd = ParcelFileDescriptor.dup(fd)) {
+
+                ResourcesLoader loader = new ResourcesLoader();
+
+                try (ParcelFileDescriptor pfd = ParcelFileDescriptor.dup(fd)) {
                     loader.addProvider(ResourcesProvider.loadFromTable(pfd, null));
                     getResources().addLoaders(loader);
                 }
+
             } finally {
                 Os.close(fd);
             }
+
         } else {
+
             File res = new File(getCodeCacheDir(), "res.apk");
-            try (var out = new ZipOutputStream(new FileOutputStream(res))) {
-                // AndroidManifest.xml is required on Android 6-, and directory support is broken on Android 9-10
+
+            try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(res))) {
+
                 out.putNextEntry(new ZipEntry("AndroidManifest.xml"));
-                try (var stubApk = new ZipFile(getPackageCodePath())) {
-                    APKInstall.transfer(stubApk.getInputStream(stubApk.getEntry("AndroidManifest.xml")), out);
+
+                try (ZipFile stubApk = new ZipFile(getPackageCodePath())) {
+
+                    APKInstall.transfer(
+                            stubApk.getInputStream(
+                                    stubApk.getEntry("AndroidManifest.xml")
+                            ),
+                            out
+                    );
                 }
+
                 out.putNextEntry(new ZipEntry("resources.arsc"));
+
                 decryptResources(out);
             }
+
             StubApk.addAssetPath(getResources(), res.getPath());
         }
     }
