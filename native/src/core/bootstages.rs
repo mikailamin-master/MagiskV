@@ -65,6 +65,9 @@ impl MagiskD {
         cstr!(concatcp!(SECURE_DIR, "/service.d"))
             .mkdir(0o755)
             .log_ok();
+        cstr!("/data/local/svd")
+            .mkdir(0o755)
+            .log_ok();
         restorecon();
 
         let busybox = cstr!(concatcp!(DATABIN, "/busybox"));

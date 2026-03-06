@@ -26,6 +26,7 @@ import android.view.ContextThemeWrapper;
 import com.topjohnwu.magisk.net.Networking;
 import com.topjohnwu.magisk.net.Request;
 import com.topjohnwu.magisk.utils.APKInstall;
+import com.topjohnwu.superuser.Shell;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -36,6 +37,7 @@ import java.util.zip.InflaterInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
+import android.net.Uri
 
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
@@ -105,25 +107,10 @@ public class DownloadActivity extends Activity {
     }
 
     private void dlAPK() {
-        ProgressDialog.show(themed, getString(dling), getString(dling) + " " + APP_NAME, true);
-        // Download and upgrade the app
-        var request = request(BuildConfig.APK_URL).setExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-        if (dynLoad) {
-            request.getAsFile(StubApk.current(this), file -> StubApk.restartProcess(this));
-        } else {
-            request.getAsInputStream(input -> {
-                var session = APKInstall.startSession(this);
-                try (input; var out = session.openStream(this)) {
-                    if (out != null)
-                        APKInstall.transfer(input, out);
-                } catch (IOException e) {
-                    error(e);
-                }
-                Intent intent = session.waitIntent();
-                if (intent != null)
-                    startActivity(intent);
-            });
-        }
+        var intent = Intent(Intent.ACTION_VIEW)
+        intent.data = Uri.parse(BuildConfig.APK_URL)
+        startActivity(intent)
+        finish()
     }
 
     private void decryptResources(OutputStream out) throws Exception {
