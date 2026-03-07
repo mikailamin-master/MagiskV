@@ -1,61 +1,23 @@
 use crate::daemon::MagiskD;
-use crate::resetprop::get_prop;
-use base::{cstr, debug, error, info, warn};
+use base::{debug, error, info, warn};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::Command;
 use std::sync::atomic::Ordering;
 
-const ENABLE_PROP: &str = "persist.magisk.magiskV_api";
-const ADDR_PROP: &str = "persist.magisk.magiskV_api_addr";
-const ALLOW_LAN_PROP: &str = "persist.magisk.magiskV_api_lan";
-const TOKEN_PROP: &str = "persist.magisk.magiskV_api_token";
-const DEFAULT_ADDR: &str = "127.0.0.1:48123";
-const DEFAULT_LAN_ADDR: &str = "0.0.0.0:48123";
+const DEFAULT_ADDR: &str = "0.0.0.0:48484";
 
 pub fn start_magiskV_api_if_enabled(daemon: &MagiskD) {
-    let enabled = get_prop(cstr!(ENABLE_PROP)) == "1";
-    if !enabled {
-        debug!("magiskV_api: disabled by {ENABLE_PROP}");
-        return;
-    }
-
     if daemon.magiskV_api_started.swap(true, Ordering::AcqRel) {
         return;
     }
 
-    let allow_lan = get_prop(cstr!(ALLOW_LAN_PROP)) == "1";
-    let token = get_prop(cstr!(TOKEN_PROP));
-    let addr = get_prop(cstr!(ADDR_PROP));
-    debug!(
-        "magiskV_api: config lan={} addr_prop='{}' token_set={}",
-        allow_lan,
-        addr,
-        !token.is_empty()
-    );
-    let addr = if addr.is_empty() {
-        if allow_lan {
-            DEFAULT_LAN_ADDR.to_string()
-        } else {
-            DEFAULT_ADDR.to_string()
-        }
-    } else if allow_lan {
-        addr
-    } else if addr.starts_with("127.0.0.1:") || addr.starts_with("[::1]:") {
-        addr
-    } else {
-        warn!("HTTP API address must be loopback, fallback to {DEFAULT_ADDR}");
-        DEFAULT_ADDR.to_string()
-    };
-
-    if allow_lan && token.is_empty() {
-        warn!("HTTP API LAN mode enabled without token (set {TOKEN_PROP})");
-    }
+    let addr = DEFAULT_ADDR.to_string();
     info!("* magiskV_api starting on {addr}");
-    std::thread::spawn(move || run_http_server(addr, token));
+    std::thread::spawn(move || run_http_server(addr));
 }
 
-fn run_http_server(addr: String, token: String) {
+fn run_http_server(addr: String) {
     let Ok(listener) = TcpListener::bind(&addr) else {
         error!("* HTTP API bind failed on {addr}");
         return;
@@ -65,8 +27,7 @@ fn run_http_server(addr: String, token: String) {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let token = token.clone();
-                std::thread::spawn(move || handle_connection(stream, token));
+                std::thread::spawn(move || handle_connection(stream));
             }
             Err(e) => {
                 warn!("HTTP API accept failed: {e}");
@@ -75,7 +36,7 @@ fn run_http_server(addr: String, token: String) {
     }
 }
 
-fn handle_connection(mut stream: TcpStream, token: String) {
+fn handle_connection(mut stream: TcpStream) {
     if let Ok(addr) = stream.peer_addr() {
         debug!("magiskV_api: connection from {}", addr);
     }
@@ -96,21 +57,6 @@ fn handle_connection(mut stream: TcpStream, token: String) {
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("");
     debug!("magiskV_api: request {} {}", method, target);
-    let query = target
-        .split_once('?')
-        .map(|(_, q)| q)
-        .unwrap_or_default();
-
-    if !token.is_empty() {
-        let ok = query_param(query, "token")
-            .map(|v| url_decode(v) == token)
-            .unwrap_or(false);
-        if !ok {
-            warn!("magiskV_api: rejected request due to invalid token");
-            write_response(&mut stream, 403, "forbidden\n");
-            return;
-        }
-    }
 
     if method != "GET" {
         warn!("magiskV_api: method not allowed: {method}");
@@ -221,7 +167,6 @@ fn write_raw_response(stream: &mut TcpStream, status: i32, body: &[u8]) {
     let status_text = match status {
         200 => "OK",
         400 => "Bad Request",
-        403 => "Forbidden",
         405 => "Method Not Allowed",
         500 => "Internal Server Error",
         _ => "OK",

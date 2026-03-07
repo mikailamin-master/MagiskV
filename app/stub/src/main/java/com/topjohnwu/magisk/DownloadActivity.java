@@ -12,6 +12,7 @@ import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.content.res.loader.ResourcesLoader;
 import android.content.res.loader.ResourcesProvider;
 import android.os.AsyncTask;
@@ -99,9 +100,21 @@ public class DownloadActivity extends Activity {
                 .setCancelable(false)
                 .setTitle(APP_NAME)
                 .setMessage(getString(upgrade_msg))
-                .setPositiveButton(yes, (d, w) -> dlAPK())
+                .setPositiveButton(yes, (d, w) -> openInBrowser())
                 .setNegativeButton(no, (d, w) -> finish())
                 .show();
+    }
+
+    private void openInBrowser() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.APK_URL));
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            startActivity(intent);
+        } catch (Exception e) {
+            error(e);
+            return;
+        }
+        finish();
     }
 
     private void dlAPK() {

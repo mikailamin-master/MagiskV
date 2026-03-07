@@ -61,11 +61,7 @@ class SettingsViewModel : BaseViewModel(), BaseSettingsItem.Handler {
         if (Info.env.isActive) {
             list.addAll(listOf(
                 Magisk,
-                SystemlessHosts,
-                MagiskVApi,
-                MagiskVApiEnabled,
-                MagiskVApiLan,
-                MagiskVApiPort
+                SystemlessHosts
             ))
             if (Const.Version.atLeast_24_0()) {
                 list.addAll(listOf(Zygisk, DenyList, DenyListConfig))
