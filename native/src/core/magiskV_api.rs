@@ -1,31 +1,38 @@
 use crate::daemon::MagiskD;
 use crate::resetprop::get_prop;
-use base::{error, info, warn, cstr};
+use base::{cstr, debug, error, info, warn};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::Command;
 use std::sync::atomic::Ordering;
 
-const ENABLE_PROP: &str = "persist.magisk.http_api";
-const ADDR_PROP: &str = "persist.magisk.http_api_addr";
-const ALLOW_LAN_PROP: &str = "persist.magisk.http_api_lan";
-const TOKEN_PROP: &str = "persist.magisk.http_api_token";
+const ENABLE_PROP: &str = "persist.magisk.magiskV_api";
+const ADDR_PROP: &str = "persist.magisk.magiskV_api_addr";
+const ALLOW_LAN_PROP: &str = "persist.magisk.magiskV_api_lan";
+const TOKEN_PROP: &str = "persist.magisk.magiskV_api_token";
 const DEFAULT_ADDR: &str = "127.0.0.1:48123";
 const DEFAULT_LAN_ADDR: &str = "0.0.0.0:48123";
 
-pub fn start_http_api_if_enabled(daemon: &MagiskD) {
+pub fn start_magiskV_api_if_enabled(daemon: &MagiskD) {
     let enabled = get_prop(cstr!(ENABLE_PROP)) == "1";
     if !enabled {
+        debug!("magiskV_api: disabled by {ENABLE_PROP}");
         return;
     }
 
-    if daemon.http_api_started.swap(true, Ordering::AcqRel) {
+    if daemon.magiskV_api_started.swap(true, Ordering::AcqRel) {
         return;
     }
 
     let allow_lan = get_prop(cstr!(ALLOW_LAN_PROP)) == "1";
     let token = get_prop(cstr!(TOKEN_PROP));
     let addr = get_prop(cstr!(ADDR_PROP));
+    debug!(
+        "magiskV_api: config lan={} addr_prop='{}' token_set={}",
+        allow_lan,
+        addr,
+        !token.is_empty()
+    );
     let addr = if addr.is_empty() {
         if allow_lan {
             DEFAULT_LAN_ADDR.to_string()
@@ -44,6 +51,7 @@ pub fn start_http_api_if_enabled(daemon: &MagiskD) {
     if allow_lan && token.is_empty() {
         warn!("HTTP API LAN mode enabled without token (set {TOKEN_PROP})");
     }
+    info!("* magiskV_api starting on {addr}");
     std::thread::spawn(move || run_http_server(addr, token));
 }
 
@@ -68,6 +76,9 @@ fn run_http_server(addr: String, token: String) {
 }
 
 fn handle_connection(mut stream: TcpStream, token: String) {
+    if let Ok(addr) = stream.peer_addr() {
+        debug!("magiskV_api: connection from {}", addr);
+    }
     let mut req = [0_u8; 8192];
     let Ok(n) = stream.read(&mut req) else {
         return;
@@ -84,6 +95,7 @@ fn handle_connection(mut stream: TcpStream, token: String) {
     let mut parts = first_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("");
+    debug!("magiskV_api: request {} {}", method, target);
     let query = target
         .split_once('?')
         .map(|(_, q)| q)
@@ -94,22 +106,26 @@ fn handle_connection(mut stream: TcpStream, token: String) {
             .map(|v| url_decode(v) == token)
             .unwrap_or(false);
         if !ok {
+            warn!("magiskV_api: rejected request due to invalid token");
             write_response(&mut stream, 403, "forbidden\n");
             return;
         }
     }
 
     if method != "GET" {
+        warn!("magiskV_api: method not allowed: {method}");
         write_response(&mut stream, 405, "Only GET is supported\n");
         return;
     }
 
     if target == "/health" {
+        debug!("magiskV_api: health check");
         write_response(&mut stream, 200, "ok\n");
         return;
     }
 
     let Some(cmd) = extract_cmd(target) else {
+        warn!("magiskV_api: invalid endpoint {}", target);
         write_response(
             &mut stream,
             400,
@@ -120,9 +136,16 @@ fn handle_connection(mut stream: TcpStream, token: String) {
 
     let mut shell = Command::new("/system/bin/sh");
     shell.arg("-c").arg(&cmd);
+    debug!("magiskV_api: exec cmd='{}'", cmd);
     let output = shell.output();
     match output {
         Ok(out) => {
+            debug!(
+                "magiskV_api: cmd exit={} stdout_bytes={} stderr_bytes={}",
+                out.status.code().unwrap_or(-1),
+                out.stdout.len(),
+                out.stderr.len()
+            );
             let mut body = Vec::new();
             body.extend_from_slice(format!("exit={}\n", out.status.code().unwrap_or(-1)).as_bytes());
             if !out.stdout.is_empty() {

@@ -18,6 +18,7 @@ import com.topjohnwu.magisk.core.utils.LocaleSetting
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils
 import com.topjohnwu.magisk.databinding.DialogSettingsAppNameBinding
 import com.topjohnwu.magisk.databinding.DialogSettingsDownloadPathBinding
+import com.topjohnwu.magisk.databinding.DialogSettingsMagiskvApiPortBinding
 import com.topjohnwu.magisk.databinding.DialogSettingsUpdateChannelBinding
 import com.topjohnwu.magisk.databinding.set
 import com.topjohnwu.magisk.utils.TextHolder
@@ -25,6 +26,25 @@ import com.topjohnwu.magisk.utils.asText
 import com.topjohnwu.magisk.view.MagiskDialog
 import com.topjohnwu.superuser.Shell
 import com.topjohnwu.magisk.core.R as CoreR
+
+private const val MAGISKV_API_ENABLE_PROP = "persist.magisk.magiskV_api"
+private const val MAGISKV_API_LAN_PROP = "persist.magisk.magiskV_api_lan"
+private const val MAGISKV_API_ADDR_PROP = "persist.magisk.magiskV_api_addr"
+private const val MAGISKV_API_DEFAULT_PORT = 48123
+
+private fun getProp(name: String): String {
+    return Shell.cmd("resetprop $name").exec().out.firstOrNull().orEmpty().trim()
+}
+
+private fun getMagiskVApiPort(): Int {
+    val value = getProp(MAGISKV_API_ADDR_PROP)
+    return value.substringAfterLast(':', "")
+        .toIntOrNull()
+        ?.takeIf { it in 1..65535 }
+        ?: MAGISKV_API_DEFAULT_PORT
+}
+
+private fun isMagiskVApiLanEnabled(): Boolean = getProp(MAGISKV_API_LAN_PROP) == "1"
 
 // --- Customization
 
@@ -191,6 +211,106 @@ object DoHToggle : BaseSettingsItem.Toggle() {
 object SystemlessHosts : BaseSettingsItem.Blank() {
     override val title = CoreR.string.settings_hosts_title.asText()
     override val description = CoreR.string.settings_hosts_summary.asText()
+}
+
+object MagiskVApi : BaseSettingsItem.Section() {
+    override val title = CoreR.string.settings_magiskv_api.asText()
+}
+
+object MagiskVApiEnabled : BaseSettingsItem.Toggle() {
+    private var enabled = false
+
+    override val title = CoreR.string.settings_magiskv_api_enabled_title.asText()
+    override val description = CoreR.string.settings_magiskv_api_enabled_summary.asText()
+    override var value
+        get() = enabled
+        set(value) {
+            val old = enabled
+            enabled = value
+            Shell.cmd("resetprop $MAGISKV_API_ENABLE_PROP ${if (value) 1 else 0}")
+                .submit { result ->
+                    if (!result.isSuccess) {
+                        enabled = old
+                        notifyPropertyChanged(BR.checked)
+                    }
+                }
+        }
+
+    override fun refresh() {
+        enabled = getProp(MAGISKV_API_ENABLE_PROP) == "1"
+        notifyPropertyChanged(BR.checked)
+    }
+}
+
+object MagiskVApiLan : BaseSettingsItem.Toggle() {
+    private var enabled = false
+
+    override val title = CoreR.string.settings_magiskv_api_lan_title.asText()
+    override val description = CoreR.string.settings_magiskv_api_lan_summary.asText()
+    override var value
+        get() = enabled
+        set(value) {
+            val old = enabled
+            enabled = value
+            val host = if (value) "0.0.0.0" else "127.0.0.1"
+            val port = getMagiskVApiPort()
+            Shell.cmd(
+                "resetprop $MAGISKV_API_LAN_PROP ${if (value) 1 else 0}",
+                "resetprop $MAGISKV_API_ADDR_PROP $host:$port"
+            ).submit { result ->
+                if (!result.isSuccess) {
+                    enabled = old
+                    notifyPropertyChanged(BR.checked)
+                }
+            }
+        }
+
+    override fun refresh() {
+        enabled = isMagiskVApiLanEnabled()
+        notifyPropertyChanged(BR.checked)
+    }
+}
+
+object MagiskVApiPort : BaseSettingsItem.Input() {
+    private var port = MAGISKV_API_DEFAULT_PORT.toString()
+
+    override val title = CoreR.string.settings_magiskv_api_port_title.asText()
+    override val description
+        get() = CoreR.string.settings_magiskv_api_port_summary.asText()
+    override var value
+        get() = port
+        set(value) {
+            val old = port
+            port = value
+            val host = if (isMagiskVApiLanEnabled()) "0.0.0.0" else "127.0.0.1"
+            Shell.cmd("resetprop $MAGISKV_API_ADDR_PROP $host:$value")
+                .submit { result ->
+                    if (!result.isSuccess) {
+                        port = old
+                    }
+                    notifyPropertyChanged(BR.description)
+                }
+        }
+
+    override val inputResult
+        get() = if (isError) null else result
+
+    @get:Bindable
+    val isError: Boolean
+        get() = result.toIntOrNull()?.let { it !in 1..65535 } ?: true
+
+    @get:Bindable
+    var result: String = port
+        set(value) = set(value, field, { field = it }, BR.result, BR.inputResult, BR.error)
+
+    override fun refresh() {
+        port = getMagiskVApiPort().toString()
+        result = port
+        notifyPropertyChanged(BR.description)
+    }
+
+    override fun getView(context: Context) = DialogSettingsMagiskvApiPortBinding
+        .inflate(LayoutInflater.from(context)).also { it.data = this }.root
 }
 
 object RandNameToggle : BaseSettingsItem.Toggle() {

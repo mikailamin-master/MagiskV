@@ -147,6 +147,15 @@
     <string name="settings_hosts_title">Systemless hosts</string>
     <string name="settings_hosts_summary">Systemless hosts support for ad blocking apps</string>
     <string name="settings_hosts_toast">Added systemless hosts module</string>
+    <string name="settings_magiskv_api">MagiskV API</string>
+    <string name="settings_magiskv_api_enabled_title">Enable MagiskV API</string>
+    <string name="settings_magiskv_api_enabled_summary">Start command API on late_start service. Reboot required after changes.</string>
+    <string name="settings_magiskv_api_lan_title">Allow LAN access</string>
+    <string name="settings_magiskv_api_lan_summary">Allow access from other devices in local network. Reboot required after changes.</string>
+    <string name="settings_magiskv_api_port_title">API port</string>
+    <string name="settings_magiskv_api_port_summary">Change listening port for MagiskV API. Reboot required after changes.</string>
+    <string name="settings_magiskv_api_port_hint">Port (1-65535)</string>
+    <string name="settings_magiskv_api_port_error">Invalid port</string>
     <string name="settings_app_name_hint">New name</string>
     <string name="settings_app_name_helper">App will be repackaged with this name</string>
     <string name="settings_app_name_error">Invalid format</string>
