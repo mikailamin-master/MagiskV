@@ -1,10 +1,2 @@
 version=30.7
-
-# Path to keystore file
 keyStore=key.jks
-# Keystore password
-keyStorePass=magisksu
-# The desired key alias in the keystore
-keyAlias=magiskpro
-# Password of specified key alias
-keyPass=magisksu

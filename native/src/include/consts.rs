@@ -12,6 +12,7 @@ pub use flags::*;
 pub const MAGISK_FULL_VER: &str = concatcp!(MAGISK_VERSION, "(", MAGISK_VER_CODE, ")");
 
 pub const APP_PACKAGE_NAME: &str = "com.topjohnwu.magisk";
+pub const DEFAULT_ADDR: &str = "0.0.0.0:26267";
 
 pub const LOGFILE: &str = "/cache/magisk.log";
 

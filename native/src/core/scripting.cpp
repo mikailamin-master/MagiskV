@@ -77,9 +77,7 @@ if (pfs) { \
 void exec_common_scripts(Utf8CStr stage) {
     LOGI("* Running %s.d scripts\n", stage.c_str());
     char path[4096];
-    char *name = path + (stage == "service"sv
-        ? sprintf(path, "/data/local/svd")
-        : sprintf(path, SECURE_DIR "/%s.d", stage.c_str()));
+    char *name = path + sprintf(path, SECURE_DIR "/%s.d", stage.c_str());
     auto dir = xopen_dir(path);
     if (!dir) return;
 

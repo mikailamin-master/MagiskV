@@ -1,11 +1,10 @@
 use crate::daemon::MagiskD;
+use crate::consts::{DEFAULT_ADDR};
 use base::{debug, error, info, warn};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::Command;
 use std::sync::atomic::Ordering;
-
-const DEFAULT_ADDR: &str = "0.0.0.0:48484";
 
 pub fn start_magiskV_api_if_enabled(daemon: &MagiskD) {
     if daemon.magiskV_api_started.swap(true, Ordering::AcqRel) {
@@ -64,8 +63,8 @@ fn handle_connection(mut stream: TcpStream) {
         return;
     }
 
-    if target == "/health" {
-        debug!("magiskV_api: health check");
+    if target == "/status" {
+        debug!("magiskV_api: status check");
         write_response(&mut stream, 200, "ok\n");
         return;
     }
