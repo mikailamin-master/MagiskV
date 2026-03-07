@@ -1,5 +1,5 @@
 use crate::daemon::MagiskD;
-use crate::consts::{DEFAULT_ADDR};
+use crate::consts::DEFAULT_ADDR;
 use base::{debug, error, info, warn};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -17,10 +17,15 @@ pub fn start_magiskV_api_if_enabled(daemon: &MagiskD) {
 }
 
 fn run_http_server(addr: String) {
+
+    let port = get_port(&addr);
+    open_firewall_port(&port);
+
     let Ok(listener) = TcpListener::bind(&addr) else {
         error!("* HTTP API bind failed on {addr}");
         return;
     };
+
     info!("* HTTP API listening on {addr}");
 
     for stream in listener.incoming() {
@@ -35,18 +40,41 @@ fn run_http_server(addr: String) {
     }
 }
 
+fn get_port(addr: &str) -> String {
+    addr.split(':').last().unwrap_or("80").to_string()
+}
+
+fn open_firewall_port(port: &str) {
+
+    let cmd = format!(
+        "iptables -I INPUT 1 -p tcp --dport {} -j ACCEPT; \
+         iptables -I OUTPUT 1 -p tcp --sport {} -j ACCEPT",
+        port, port
+    );
+
+    let _ = Command::new("/system/bin/sh")
+        .arg("-c")
+        .arg(cmd)
+        .output();
+}
+
 fn handle_connection(mut stream: TcpStream) {
     if let Ok(addr) = stream.peer_addr() {
         debug!("magiskV_api: connection from {}", addr);
     }
+
     let mut req = [0_u8; 8192];
+
     let Ok(n) = stream.read(&mut req) else {
         return;
     };
+
     if n == 0 {
         return;
     }
+
     let line = String::from_utf8_lossy(&req[..n]);
+
     let Some(first_line) = line.lines().next() else {
         write_response(&mut stream, 400, "Bad Request");
         return;
@@ -55,22 +83,21 @@ fn handle_connection(mut stream: TcpStream) {
     let mut parts = first_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("");
+
     debug!("magiskV_api: request {} {}", method, target);
 
     if method != "GET" {
         warn!("magiskV_api: method not allowed: {method}");
-        write_response(&mut stream, 405, "Only GET is supported\n");
+        write_response(&mut stream, 405, "Only GET supported\n");
         return;
     }
 
     if target == "/status" {
-        debug!("magiskV_api: status check");
         write_response(&mut stream, 200, "ok\n");
         return;
     }
 
     let Some(cmd) = extract_cmd(target) else {
-        warn!("magiskV_api: invalid endpoint {}", target);
         write_response(
             &mut stream,
             400,
@@ -81,80 +108,106 @@ fn handle_connection(mut stream: TcpStream) {
 
     let mut shell = Command::new("/system/bin/sh");
     shell.arg("-c").arg(&cmd);
+
     debug!("magiskV_api: exec cmd='{}'", cmd);
-    let output = shell.output();
-    match output {
+
+    match shell.output() {
         Ok(out) => {
-            debug!(
-                "magiskV_api: cmd exit={} stdout_bytes={} stderr_bytes={}",
-                out.status.code().unwrap_or(-1),
-                out.stdout.len(),
-                out.stderr.len()
-            );
+
             let mut body = Vec::new();
-            body.extend_from_slice(format!("exit={}\n", out.status.code().unwrap_or(-1)).as_bytes());
+
+            body.extend_from_slice(
+                format!("exit={}\n", out.status.code().unwrap_or(-1)).as_bytes(),
+            );
+
             if !out.stdout.is_empty() {
                 body.extend_from_slice(b"stdout:\n");
                 body.extend_from_slice(&out.stdout);
+
                 if !out.stdout.ends_with(b"\n") {
                     body.extend_from_slice(b"\n");
                 }
             }
+
             if !out.stderr.is_empty() {
                 body.extend_from_slice(b"stderr:\n");
                 body.extend_from_slice(&out.stderr);
+
                 if !out.stderr.ends_with(b"\n") {
                     body.extend_from_slice(b"\n");
                 }
             }
+
             write_raw_response(&mut stream, 200, &body);
         }
+
         Err(e) => {
-            write_response(&mut stream, 500, &format!("command execution failed: {e}\n"));
+            write_response(
+                &mut stream,
+                500,
+                &format!("command execution failed: {e}\n"),
+            );
         }
     }
 }
 
 fn extract_cmd(target: &str) -> Option<String> {
+
     let (path, query) = target.split_once('?')?;
+
     if path != "/cmd" {
         return None;
     }
+
     query_param(query, "cmd").map(url_decode)
 }
 
 fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
+
     for kv in query.split('&') {
+
         let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
+
         if k == key {
             return Some(v);
         }
     }
+
     None
 }
 
 fn url_decode(s: &str) -> String {
+
     let mut out = String::with_capacity(s.len());
+
     let b = s.as_bytes();
     let mut i = 0;
+
     while i < b.len() {
+
         if b[i] == b'+' {
             out.push(' ');
             i += 1;
             continue;
         }
+
         if b[i] == b'%' && i + 2 < b.len() {
+
             let h1 = (b[i + 1] as char).to_digit(16);
             let h2 = (b[i + 2] as char).to_digit(16);
+
             if let (Some(h1), Some(h2)) = (h1, h2) {
+
                 out.push(((h1 * 16 + h2) as u8) as char);
                 i += 3;
                 continue;
             }
         }
+
         out.push(b[i] as char);
         i += 1;
     }
+
     out
 }
 
@@ -163,6 +216,7 @@ fn write_response(stream: &mut TcpStream, status: i32, body: &str) {
 }
 
 fn write_raw_response(stream: &mut TcpStream, status: i32, body: &[u8]) {
+
     let status_text = match status {
         200 => "OK",
         400 => "Bad Request",
@@ -170,13 +224,15 @@ fn write_raw_response(stream: &mut TcpStream, status: i32, body: &[u8]) {
         500 => "Internal Server Error",
         _ => "OK",
     };
+
     let _ = stream.write_all(
         format!(
-            "HTTP/1.1 {status} {status_text}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 {status} {status_text}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             body.len()
         )
         .as_bytes(),
     );
+
     let _ = stream.write_all(body);
     let _ = stream.flush();
 }
