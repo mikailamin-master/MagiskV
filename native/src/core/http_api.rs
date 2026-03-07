@@ -8,7 +8,10 @@ use std::sync::atomic::Ordering;
 
 const ENABLE_PROP: &str = "persist.magisk.http_api";
 const ADDR_PROP: &str = "persist.magisk.http_api_addr";
+const ALLOW_LAN_PROP: &str = "persist.magisk.http_api_lan";
+const TOKEN_PROP: &str = "persist.magisk.http_api_token";
 const DEFAULT_ADDR: &str = "127.0.0.1:48123";
+const DEFAULT_LAN_ADDR: &str = "0.0.0.0:48123";
 
 pub fn start_http_api_if_enabled(daemon: &MagiskD) {
     let enabled = get_prop(cstr!(ENABLE_PROP)) == "1";
@@ -20,9 +23,17 @@ pub fn start_http_api_if_enabled(daemon: &MagiskD) {
         return;
     }
 
+    let allow_lan = get_prop(cstr!(ALLOW_LAN_PROP)) == "1";
+    let token = get_prop(cstr!(TOKEN_PROP));
     let addr = get_prop(cstr!(ADDR_PROP));
     let addr = if addr.is_empty() {
-        DEFAULT_ADDR.to_string()
+        if allow_lan {
+            DEFAULT_LAN_ADDR.to_string()
+        } else {
+            DEFAULT_ADDR.to_string()
+        }
+    } else if allow_lan {
+        addr
     } else if addr.starts_with("127.0.0.1:") || addr.starts_with("[::1]:") {
         addr
     } else {
@@ -30,10 +41,13 @@ pub fn start_http_api_if_enabled(daemon: &MagiskD) {
         DEFAULT_ADDR.to_string()
     };
 
-    std::thread::spawn(move || run_http_server(addr));
+    if allow_lan && token.is_empty() {
+        warn!("HTTP API LAN mode enabled without token (set {TOKEN_PROP})");
+    }
+    std::thread::spawn(move || run_http_server(addr, token));
 }
 
-fn run_http_server(addr: String) {
+fn run_http_server(addr: String, token: String) {
     let Ok(listener) = TcpListener::bind(&addr) else {
         error!("* HTTP API bind failed on {addr}");
         return;
@@ -43,7 +57,8 @@ fn run_http_server(addr: String) {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                std::thread::spawn(move || handle_connection(stream));
+                let token = token.clone();
+                std::thread::spawn(move || handle_connection(stream, token));
             }
             Err(e) => {
                 warn!("HTTP API accept failed: {e}");
@@ -52,7 +67,7 @@ fn run_http_server(addr: String) {
     }
 }
 
-fn handle_connection(mut stream: TcpStream) {
+fn handle_connection(mut stream: TcpStream, token: String) {
     let mut req = [0_u8; 8192];
     let Ok(n) = stream.read(&mut req) else {
         return;
@@ -69,6 +84,21 @@ fn handle_connection(mut stream: TcpStream) {
     let mut parts = first_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("");
+    let query = target
+        .split_once('?')
+        .map(|(_, q)| q)
+        .unwrap_or_default();
+
+    if !token.is_empty() {
+        let ok = query_param(query, "token")
+            .map(|v| url_decode(v) == token)
+            .unwrap_or(false);
+        if !ok {
+            write_response(&mut stream, 403, "forbidden\n");
+            return;
+        }
+    }
+
     if method != "GET" {
         write_response(&mut stream, 405, "Only GET is supported\n");
         return;
@@ -122,10 +152,14 @@ fn extract_cmd(target: &str) -> Option<String> {
     if path != "/cmd" {
         return None;
     }
+    query_param(query, "cmd").map(url_decode)
+}
+
+fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
     for kv in query.split('&') {
         let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
-        if k == "cmd" {
-            return Some(url_decode(v));
+        if k == key {
+            return Some(v);
         }
     }
     None
@@ -164,6 +198,7 @@ fn write_raw_response(stream: &mut TcpStream, status: i32, body: &[u8]) {
     let status_text = match status {
         200 => "OK",
         400 => "Bad Request",
+        403 => "Forbidden",
         405 => "Method Not Allowed",
         500 => "Internal Server Error",
         _ => "OK",
