@@ -4,6 +4,7 @@ use crate::ffi::{
     DbEntryKey, RequestCode, check_key_combo, exec_common_scripts, exec_module_scripts,
     get_magisk_tmp, initialize_denylist,
 };
+use crate::http_api::start_http_api_if_enabled;
 use crate::logging::setup_logfile;
 use crate::module::disable_modules;
 use crate::mount::{clean_mounts, setup_preinit_dir};
@@ -167,6 +168,7 @@ impl MagiskD {
         setup_logfile();
         info!("** late_start service mode running");
 
+        start_http_api_if_enabled(self);
         exec_common_scripts(cstr!("service"));
         if let Some(module_list) = self.module_list.get() {
             exec_module_scripts(cstr!("service"), module_list);

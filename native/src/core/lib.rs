@@ -30,6 +30,7 @@ mod bootstages;
 mod consts;
 mod daemon;
 mod db;
+mod http_api;
 mod logging;
 mod magisk;
 mod module;
