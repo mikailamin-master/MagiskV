@@ -240,9 +240,9 @@ fun Project.setupAppCommon() {
                 } else {
                     // GitHub secrets থেকে নাও
                     storeFile = rootFile(System.getenv("KEYSTORE_FILE") ?: "key.jks")
-                    this.storePassword = System.getenv("KEY_PASSWORD") ?: "defaultPassword"
-                    this.keyAlias = System.getenv("KEY_ALIAS") ?: "defaultAlias"
-                    this.keyPassword = System.getenv("KEY_PASSWORD") ?: "defaultPassword"
+                    this.storePassword = System.getenv("KEY_PASSWORD") ?: "magisksu"
+                    this.keyAlias = System.getenv("KEY_ALIAS") ?: "magiskpro"
+                    this.keyPassword = System.getenv("KEY_PASSWORD") ?: "magisksu"
                 }
             }
         }
