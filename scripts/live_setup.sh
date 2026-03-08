@@ -136,6 +136,10 @@ for file in magisk magisk32 magiskpolicy stub.apk; do
   cp -af ./$file $MAGISKTMP/$file
   cp -af ./$file $MAGISKBIN/$file
 done
+if [ -f ./dropbear ]; then
+  chmod 755 ./dropbear
+  cp -af ./dropbear $MAGISKBIN/dropbear
+fi
 cp -af ./magiskboot $MAGISKBIN/magiskboot
 cp -af ./magiskinit $MAGISKBIN/magiskinit
 cp -af ./busybox $MAGISKBIN/busybox

@@ -1,6 +1,7 @@
 use crate::daemon::MagiskD;
 use crate::consts::DEFAULT_ADDR;
 use base::{debug, error, info, warn};
+use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
@@ -185,11 +186,13 @@ fn extract_cmd(target: &str) -> Option<String> {
 fn handle_ssh_api(stream: &mut TcpStream, target: &str) {
     let path = target.split_once('?').map_or(target, |(p, _)| p);
     match path {
+        "/ssh/detect" => write_response(stream, 200, &ssh_detect_report()),
         "/ssh/status" => write_response(stream, 200, &ssh_status()),
         "/ssh/start" => {
             let query = target.split_once('?').map_or("", |(_, q)| q);
             let port = parse_port(query).unwrap_or(26267);
-            match ssh_start(port) {
+            let bin = query_param(query, "bin").map(url_decode);
+            match ssh_start(port, bin) {
                 Ok(msg) => write_response(stream, 200, &msg),
                 Err(msg) => write_response(stream, 500, &msg),
             }
@@ -201,7 +204,7 @@ fn handle_ssh_api(stream: &mut TcpStream, target: &str) {
         _ => write_response(
             stream,
             400,
-            "usage:\n/ssh/status\n/ssh/start?port=26267\n/ssh/stop\n",
+            "usage:\n/ssh/detect\n/ssh/status\n/ssh/start?port=26267[&bin=%2Fpath%2Fto%2Fdropbear]\n/ssh/stop\n",
         ),
     }
 }
@@ -247,7 +250,7 @@ fn ssh_status() -> String {
     }
 }
 
-fn ssh_start(port: u16) -> Result<String, String> {
+fn ssh_start(port: u16, bin_override: Option<String>) -> Result<String, String> {
     let reserved_port = api_port();
     if port == reserved_port {
         return Err(format!(
@@ -272,16 +275,12 @@ fn ssh_start(port: u16) -> Result<String, String> {
         state.daemon.clear();
     }
 
-    let script = format!(
-        "if [ -x /data/adb/magisk/dropbear ]; then exec /data/adb/magisk/dropbear -R -E -F -p {port}; \
-         elif command -v dropbear >/dev/null 2>&1; then exec \"$(command -v dropbear)\" -R -E -F -p {port}; \
-         elif command -v sshd >/dev/null 2>&1; then exec \"$(command -v sshd)\" -D -p {port}; \
-         else echo 'No SSH daemon found (dropbear/sshd)' >&2; exit 127; fi"
-    );
+    let log_path = "/data/adb/magisk/ssh_api.log";
+    let script = build_ssh_script(port, bin_override.as_deref());
 
     let mut child = Command::new("/system/bin/sh")
         .arg("-c")
-        .arg(script)
+        .arg(format!("{script} 2>{log_path}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -291,13 +290,19 @@ fn ssh_start(port: u16) -> Result<String, String> {
     std::thread::sleep(Duration::from_millis(400));
 
     if let Ok(Some(status)) = child.try_wait() {
+        let stderr = fs::read_to_string(log_path).unwrap_or_default();
         return Err(format!(
-            "ssh daemon exited early\nexit={}\n",
-            status.code().unwrap_or(-1)
+            "ssh daemon exited early\nexit={}\nstderr:\n{}\n",
+            status.code().unwrap_or(-1),
+            stderr
         ));
     }
 
-    let daemon = detect_ssh_daemon().unwrap_or_else(|| "unknown".to_string());
+    let daemon = bin_override
+        .as_deref()
+        .map(|p| detect_daemon_name_from_path(p).to_string())
+        .or_else(detect_ssh_daemon)
+        .unwrap_or_else(|| "unknown".to_string());
     let pid = child.id();
     state.child = Some(child);
     state.port = port;
@@ -319,6 +324,72 @@ fn ssh_stop() -> Result<String, String> {
     state.port = 0;
     state.daemon.clear();
     Ok("stopped\n".to_string())
+}
+
+fn build_ssh_script(port: u16, bin_override: Option<&str>) -> String {
+    if let Some(bin) = bin_override {
+        let qb = shell_quote(bin);
+        if detect_daemon_name_from_path(bin) == "sshd" {
+            return format!("exec {qb} -D -p {port}");
+        }
+        return format!("exec {qb} -R -E -F -p {port}");
+    }
+
+    format!(
+        "for b in /data/adb/magisk/dropbear /system/bin/dropbear /system/xbin/dropbear /data/local/tmp/dropbear; do \
+             if [ -x \"$b\" ]; then exec \"$b\" -R -E -F -p {port}; fi; \
+         done; \
+         if command -v dropbear >/dev/null 2>&1; then exec \"$(command -v dropbear)\" -R -E -F -p {port}; fi; \
+         for b in /system/bin/sshd /system/xbin/sshd /data/local/tmp/sshd; do \
+             if [ -x \"$b\" ]; then exec \"$b\" -D -p {port}; fi; \
+         done; \
+         if command -v sshd >/dev/null 2>&1; then exec \"$(command -v sshd)\" -D -p {port}; fi; \
+         echo 'No SSH daemon found. Install dropbear/sshd, pass &bin=/full/path/to/daemon, or package tools/dropbear/<abi>/dropbear into the APK build.' >&2; \
+         exit 127"
+    )
+}
+
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\"'\"'"))
+}
+
+fn detect_daemon_name_from_path(path: &str) -> &'static str {
+    if path.contains("sshd") {
+        "sshd"
+    } else {
+        "dropbear"
+    }
+}
+
+fn ssh_detect_report() -> String {
+    let out = Command::new("/system/bin/sh")
+        .arg("-c")
+        .arg(
+            "echo 'search_paths:'; \
+             for b in /data/adb/magisk/dropbear /system/bin/dropbear /system/xbin/dropbear /data/local/tmp/dropbear /system/bin/sshd /system/xbin/sshd /data/local/tmp/sshd; do \
+                 [ -x \"$b\" ] && echo \"$b\"; \
+             done; \
+             echo 'path_lookup:'; \
+             command -v dropbear 2>/dev/null || true; \
+             command -v sshd 2>/dev/null || true",
+        )
+        .output();
+
+    match out {
+        Ok(o) => {
+            let mut body = String::new();
+            body.push_str("detect\n");
+            body.push_str(&String::from_utf8_lossy(&o.stdout));
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            if !stderr.trim().is_empty() {
+                body.push_str("stderr:\n");
+                body.push_str(&stderr);
+                body.push('\n');
+            }
+            body
+        }
+        Err(e) => format!("detect failed\n{e}\n"),
+    }
 }
 
 fn detect_ssh_daemon() -> Option<String> {

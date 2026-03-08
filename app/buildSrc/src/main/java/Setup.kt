@@ -121,6 +121,30 @@ const val BUSYBOX_DOWNLOAD_URL =
 const val BUSYBOX_ZIP_CHECKSUM =
     "b4d0551feabaf314e53c79316c980e8f66432e9fb91a69dbbf10a93564b40951"
 
+data class BinaryPackage(
+    val url: String,
+    val sha256: String
+)
+
+val DROPBEAR_PACKAGES = mapOf(
+    "arm64-v8a" to BinaryPackage(
+        "https://github.com/ribbons/android-dropbear/releases/download/DROPBEAR_2025.89/dropbear-aarch64-linux-android.zip",
+        "26f8420f9a1a0e4ac234b0a2d5b62c223f3bf8e2362dd165b12d6d6d44f63844"
+    ),
+    "armeabi-v7a" to BinaryPackage(
+        "https://github.com/ribbons/android-dropbear/releases/download/DROPBEAR_2025.89/dropbear-armv7a-linux-androideabi.zip",
+        "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5"
+    ),
+    "x86_64" to BinaryPackage(
+        "https://github.com/ribbons/android-dropbear/releases/download/DROPBEAR_2025.89/dropbear-x86_64-linux-android.zip",
+        "8d4f20a774d99df07b1d6ab2cf63b2126986707e17473a2b1c4ee4d49e18d5ad"
+    ),
+    "x86" to BinaryPackage(
+        "https://github.com/ribbons/android-dropbear/releases/download/DROPBEAR_2025.89/dropbear-i686-linux-android.zip",
+        "348130870cf13f4baacf0f54ffc48bcff41111de5f26356f95317d518cd70cf2"
+    ),
+)
+
 private abstract class SyncWithDir : Sync() {
     @get:OutputDirectory
     abstract val outputFolder: DirectoryProperty
@@ -146,13 +170,41 @@ fun Project.setupCoreLib() {
                             include("magiskboot", "magiskinit", "magiskpolicy", "magisk", "libinit-ld.so")
                             rename { if (it.endsWith(".so")) it else "lib$it.so" }
                         }
+                        val localDropbear = rootFile("tools/dropbear/$abi/dropbear")
+                        if (localDropbear.exists()) {
+                            from(localDropbear) {
+                                rename { "libdropbear.so" }
+                            }
+                        } else {
+                            DROPBEAR_PACKAGES[abi]?.let { pkg ->
+                                from(zipTree(downloadFile(pkg.url, pkg.sha256))) {
+                                    include("dropbear")
+                                    rename { "libdropbear.so" }
+                                }
+                            }
+                        }
                     }
                 }
                 from(zipTree(downloadFile(BUSYBOX_DOWNLOAD_URL, BUSYBOX_ZIP_CHECKSUM)))
                 include(abiList.map { "$it/libbusybox.so" })
                 onlyIf {
-                    if (inputs.sourceFiles.files.size != abiList.size * 6)
-                        throw StopExecutionException("Please build binaries first! (./build.py binary)")
+                    val requiredBinaries = listOf(
+                        "magiskboot",
+                        "magiskinit",
+                        "magiskpolicy",
+                        "magisk",
+                        "libinit-ld.so"
+                    )
+                    val missing = abiList.flatMap { abi ->
+                        requiredBinaries
+                            .filter { !File(rootFile("native/out/$abi"), it).exists() }
+                            .map { "$abi/$it" }
+                    }
+                    if (missing.isNotEmpty()) {
+                        throw StopExecutionException(
+                            "Please build binaries first! (./build.py binary)\nMissing: ${missing.joinToString(", ")}"
+                        )
+                    }
                     true
                 }
             }

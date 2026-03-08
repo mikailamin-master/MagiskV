@@ -11,7 +11,7 @@ run_delay() {
 # $1 = version string
 # $2 = version code
 env_check() {
-  for file in busybox magiskboot magiskinit util_functions.sh boot_patch.sh; do
+  for file in busybox magiskboot magiskinit dropbear util_functions.sh boot_patch.sh; do
     [ -f "$MAGISKBIN/$file" ] || return 1
   done
   if [ "$2" -ge 25000 ]; then
