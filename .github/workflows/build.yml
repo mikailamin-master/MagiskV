@@ -23,12 +23,6 @@ jobs:
 
             - name: Install ccache
               run: sudo apt-get update && sudo apt-get install -y ccache
-            
-            - name: create config.prop
-              run: |
-                  echo "keyStorePass=${{ secrets.KEY_PASSWORD }}" >> config.prop
-                  echo "keyPass=${{ secrets.KEY_PASSWORD }}" >> config.prop
-                  echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> config.prop
 
             - name: Cache ccache
               uses: actions/cache@v4

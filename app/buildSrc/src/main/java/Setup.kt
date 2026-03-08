@@ -224,12 +224,25 @@ fun Project.setupAppCommon() {
 
     androidApp {
         signingConfigs {
-            Config["keyStore"]?.also {
-                create("config") {
-                    storeFile = rootFile(it)
-                    storePassword = Config["keyStorePass"]
-                    keyAlias = Config["keyAlias"]
-                    keyPassword = Config["keyPass"]
+            val storeFilePath = Config["keyStore"]
+            val storePassword = Config["keyStorePass"]
+            val keyAlias = Config["keyAlias"]
+            val keyPassword = Config["keyPass"]
+
+            create("config") {
+                if (!storeFilePath.isNullOrEmpty() && !storePassword.isNullOrEmpty()
+                    && !keyAlias.isNullOrEmpty() && !keyPassword.isNullOrEmpty()) {
+                    // Config থেকে নাও
+                    storeFile = rootFile(storeFilePath)
+                    this.storePassword = storePassword
+                    this.keyAlias = keyAlias
+                    this.keyPassword = keyPassword
+                } else {
+                    // GitHub secrets থেকে নাও
+                    storeFile = rootFile(System.getenv("KEYSTORE_FILE") ?: "key.jks")
+                    this.storePassword = System.getenv("KEY_PASSWORD") ?: "defaultPassword"
+                    this.keyAlias = System.getenv("KEY_ALIAS") ?: "defaultAlias"
+                    this.keyPassword = System.getenv("KEY_PASSWORD") ?: "defaultPassword"
                 }
             }
         }
@@ -269,23 +282,27 @@ fun Project.setupAppCommon() {
 
     androidAppComponents {
         onVariants { variant ->
+            val variantNameCapped = variant.name.replaceFirstChar { it.uppercase() }
+
             val commentTask = tasks.register(
-                "comment${variant.name.replaceFirstChar { it.uppercase() }}",
+                "comment$variantNameCapped",
                 AddCommentTask::class.java
             )
+
             val transformationRequest = variant.artifacts.use(commentTask)
                 .wiredWithDirectories(AddCommentTask::apkFolder, AddCommentTask::outFolder)
                 .toTransformMany(SingleArtifact.APK)
+
             val signingConfig = androidApp.buildTypes.getByName(variant.buildType!!).signingConfig
+
             commentTask.configure {
                 this.transformationRequest = transformationRequest
                 this.signingConfig = signingConfig
                 this.comment = "version=${Config.version}\n" +
-                        "versionCode=${Config.versionCode}\n" +
-                        "stubVersion=${Config.stubVersion}\n"
+                               "versionCode=${Config.versionCode}\n" +
+                               "stubVersion=${Config.stubVersion}\n"
                 this.outFolder.set(layout.buildDirectory.dir("outputs/apk/${variant.name}"))
             }
-
         }
     }
 }
