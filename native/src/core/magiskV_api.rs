@@ -3,8 +3,23 @@ use crate::consts::DEFAULT_ADDR;
 use base::{debug, error, info, warn};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::sync::atomic::Ordering;
+use std::time::Duration;
+
+#[derive(Default)]
+struct SshState {
+    child: Option<Child>,
+    port: u16,
+    daemon: String,
+}
+
+static SSH_STATE: OnceLock<Mutex<SshState>> = OnceLock::new();
+
+fn ssh_state() -> &'static Mutex<SshState> {
+    SSH_STATE.get_or_init(|| Mutex::new(SshState::default()))
+}
 
 pub fn start_magiskV_api_if_enabled(daemon: &MagiskD) {
     if daemon.magiskV_api_started.swap(true, Ordering::AcqRel) {
@@ -97,6 +112,11 @@ fn handle_connection(mut stream: TcpStream) {
         return;
     }
 
+    if target.starts_with("/ssh/") {
+        handle_ssh_api(&mut stream, target);
+        return;
+    }
+
     let Some(cmd) = extract_cmd(target) else {
         write_response(
             &mut stream,
@@ -160,6 +180,176 @@ fn extract_cmd(target: &str) -> Option<String> {
     }
 
     query_param(query, "cmd").map(url_decode)
+}
+
+fn handle_ssh_api(stream: &mut TcpStream, target: &str) {
+    let path = target.split_once('?').map_or(target, |(p, _)| p);
+    match path {
+        "/ssh/status" => write_response(stream, 200, &ssh_status()),
+        "/ssh/start" => {
+            let query = target.split_once('?').map_or("", |(_, q)| q);
+            let port = parse_port(query).unwrap_or(26267);
+            match ssh_start(port) {
+                Ok(msg) => write_response(stream, 200, &msg),
+                Err(msg) => write_response(stream, 500, &msg),
+            }
+        }
+        "/ssh/stop" => match ssh_stop() {
+            Ok(msg) => write_response(stream, 200, &msg),
+            Err(msg) => write_response(stream, 500, &msg),
+        },
+        _ => write_response(
+            stream,
+            400,
+            "usage:\n/ssh/status\n/ssh/start?port=26267\n/ssh/stop\n",
+        ),
+    }
+}
+
+fn parse_port(query: &str) -> Option<u16> {
+    query_param(query, "port")
+        .map(url_decode)
+        .and_then(|s| s.parse::<u16>().ok())
+        .filter(|p| *p > 0)
+}
+
+fn api_port() -> u16 {
+    get_port(DEFAULT_ADDR).parse::<u16>().unwrap_or(26266)
+}
+
+fn ssh_status() -> String {
+    let mut state = ssh_state().lock().expect("ssh state poisoned");
+    if let Some(child) = state.child.as_mut() {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let msg = format!(
+                    "stopped\nexit={}\n",
+                    status.code().unwrap_or(-1)
+                );
+                state.child = None;
+                state.port = 0;
+                state.daemon.clear();
+                msg
+            }
+            Ok(None) => {
+                let pid = child.id();
+                let port = state.port;
+                let daemon = state.daemon.clone();
+                format!(
+                    "running\nport={}\npid={}\ndaemon={}\n",
+                    port, pid, daemon
+                )
+            }
+            Err(e) => format!("error\n{}\n", e),
+        }
+    } else {
+        "stopped\n".to_string()
+    }
+}
+
+fn ssh_start(port: u16) -> Result<String, String> {
+    let reserved_port = api_port();
+    if port == reserved_port {
+        return Err(format!(
+            "port {reserved_port} is reserved for magiskV HTTP API\n"
+        ));
+    }
+
+    let mut state = ssh_state().lock().expect("ssh state poisoned");
+
+    if let Some(child) = state.child.as_mut() {
+        if let Ok(None) = child.try_wait() {
+            let pid = child.id();
+            let running_port = state.port;
+            let daemon = state.daemon.clone();
+            return Ok(format!(
+                "already running\nport={}\npid={}\ndaemon={}\n",
+                running_port, pid, daemon
+            ));
+        }
+        state.child = None;
+        state.port = 0;
+        state.daemon.clear();
+    }
+
+    let script = format!(
+        "if [ -x /data/adb/magisk/dropbear ]; then exec /data/adb/magisk/dropbear -R -E -F -p {port}; \
+         elif command -v dropbear >/dev/null 2>&1; then exec \"$(command -v dropbear)\" -R -E -F -p {port}; \
+         elif command -v sshd >/dev/null 2>&1; then exec \"$(command -v sshd)\" -D -p {port}; \
+         else echo 'No SSH daemon found (dropbear/sshd)' >&2; exit 127; fi"
+    );
+
+    let mut child = Command::new("/system/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to launch shell: {e}\n"))?;
+
+    std::thread::sleep(Duration::from_millis(400));
+
+    if let Ok(Some(status)) = child.try_wait() {
+        return Err(format!(
+            "ssh daemon exited early\nexit={}\n",
+            status.code().unwrap_or(-1)
+        ));
+    }
+
+    let daemon = detect_ssh_daemon().unwrap_or_else(|| "unknown".to_string());
+    let pid = child.id();
+    state.child = Some(child);
+    state.port = port;
+    state.daemon = daemon.clone();
+
+    Ok(format!(
+        "started\nport={port}\npid={pid}\ndaemon={daemon}\n",
+    ))
+}
+
+fn ssh_stop() -> Result<String, String> {
+    let mut state = ssh_state().lock().expect("ssh state poisoned");
+    let Some(mut child) = state.child.take() else {
+        return Ok("already stopped\n".to_string());
+    };
+
+    let _ = child.kill();
+    let _ = child.wait();
+    state.port = 0;
+    state.daemon.clear();
+    Ok("stopped\n".to_string())
+}
+
+fn detect_ssh_daemon() -> Option<String> {
+    if Command::new("/system/bin/sh")
+        .arg("-c")
+        .arg("[ -x /data/adb/magisk/dropbear ]")
+        .status()
+        .ok()?
+        .success()
+    {
+        return Some("dropbear".to_string());
+    }
+    if Command::new("/system/bin/sh")
+        .arg("-c")
+        .arg("command -v dropbear >/dev/null 2>&1")
+        .status()
+        .ok()?
+        .success()
+    {
+        return Some("dropbear".to_string());
+    }
+    if Command::new("/system/bin/sh")
+        .arg("-c")
+        .arg("command -v sshd >/dev/null 2>&1")
+        .status()
+        .ok()?
+        .success()
+    {
+        return Some("sshd".to_string());
+    }
+    None
 }
 
 fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
