@@ -2,9 +2,9 @@ name: Build MagiskV
 
 on:
     push:
-        branches: [main, test]
+        branches: [main, master]
     pull_request:
-        branches: [main, test]
+        branches: [main, master]
     workflow_dispatch:
 
 jobs:
