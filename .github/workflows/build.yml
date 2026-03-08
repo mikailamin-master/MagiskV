@@ -26,7 +26,7 @@ jobs:
             
             - name: create config.prop
               run: |
-                  echo "keyStorePass=${{ secrets.KEY_PASSWORD }}" > config.prop
+                  echo "keyStorePass=${{ secrets.KEY_PASSWORD }}" >> config.prop
                   echo "keyPass=${{ secrets.KEY_PASSWORD }}" >> config.prop
                   echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> config.prop
 
