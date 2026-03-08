@@ -36,7 +36,9 @@
 
 - APK build auto-downloads prebuilt `dropbear` binaries for `arm64-v8a`, `armeabi-v7a`, `x86_64`, and `x86` from:
   - `https://github.com/ribbons/android-dropbear/releases`
-- Binaries are packaged as `libdropbear.so`, then installed to `/data/adb/magisk/dropbear` by installer/live setup scripts.
+- Binaries are packaged as `libdropbear.so` and `libdropbearkey.so`, then installed to:
+  - `/data/adb/magisk/dropbear`
+  - `/data/adb/magisk/dropbearkey`
 - Optional override: place a local binary at `tools/dropbear/<abi>/dropbear` to use that instead of downloaded assets.
 
 ## IDE Support

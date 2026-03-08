@@ -275,7 +275,7 @@ fn ssh_start(port: u16, bin_override: Option<String>) -> Result<String, String> 
         state.daemon.clear();
     }
 
-    let log_path = "/data/adb/magisk/ssh_api.log";
+    let log_path = "/data/local/tmp/magiskv_ssh.log";
     let script = build_ssh_script(port, bin_override.as_deref());
 
     let mut child = Command::new("/system/bin/sh")
@@ -327,19 +327,42 @@ fn ssh_stop() -> Result<String, String> {
 }
 
 fn build_ssh_script(port: u16, bin_override: Option<&str>) -> String {
+    let key_prep = "mkdir -p /data/adb/magisk/.ssh; \
+        chmod 700 /data/adb/magisk/.ssh; \
+        if [ ! -s /data/adb/magisk/.ssh/dropbear_ed25519_host_key ]; then \
+            if [ -x /data/adb/magisk/dropbearkey ]; then \
+                /data/adb/magisk/dropbearkey -t ed25519 -f /data/adb/magisk/.ssh/dropbear_ed25519_host_key >/dev/null 2>&1; \
+            elif command -v dropbearkey >/dev/null 2>&1; then \
+                \"$(command -v dropbearkey)\" -t ed25519 -f /data/adb/magisk/.ssh/dropbear_ed25519_host_key >/dev/null 2>&1; \
+            fi; \
+        fi; \
+        if [ ! -s /data/adb/magisk/.ssh/dropbear_rsa_host_key ]; then \
+            if [ -x /data/adb/magisk/dropbearkey ]; then \
+                /data/adb/magisk/dropbearkey -t rsa -s 2048 -f /data/adb/magisk/.ssh/dropbear_rsa_host_key >/dev/null 2>&1; \
+            elif command -v dropbearkey >/dev/null 2>&1; then \
+                \"$(command -v dropbearkey)\" -t rsa -s 2048 -f /data/adb/magisk/.ssh/dropbear_rsa_host_key >/dev/null 2>&1; \
+            fi; \
+        fi; \
+        KEY_ARGS=''; \
+        [ -s /data/adb/magisk/.ssh/dropbear_ed25519_host_key ] && KEY_ARGS=\"$KEY_ARGS -r /data/adb/magisk/.ssh/dropbear_ed25519_host_key\"; \
+        [ -s /data/adb/magisk/.ssh/dropbear_rsa_host_key ] && KEY_ARGS=\"$KEY_ARGS -r /data/adb/magisk/.ssh/dropbear_rsa_host_key\"";
+
     if let Some(bin) = bin_override {
         let qb = shell_quote(bin);
         if detect_daemon_name_from_path(bin) == "sshd" {
             return format!("exec {qb} -D -p {port}");
         }
-        return format!("exec {qb} -R -E -F -p {port}");
+        return format!(
+            "{key_prep}; eval \"exec {qb} -R -E -F -p {port} $KEY_ARGS\""
+        );
     }
 
     format!(
-        "for b in /data/adb/magisk/dropbear /system/bin/dropbear /system/xbin/dropbear /data/local/tmp/dropbear; do \
-             if [ -x \"$b\" ]; then exec \"$b\" -R -E -F -p {port}; fi; \
+        "{key_prep}; \
+         for b in /data/adb/magisk/dropbear /system/bin/dropbear /system/xbin/dropbear /data/local/tmp/dropbear; do \
+             if [ -x \"$b\" ]; then eval \"exec \\\"$b\\\" -R -E -F -p {port} $KEY_ARGS\"; fi; \
          done; \
-         if command -v dropbear >/dev/null 2>&1; then exec \"$(command -v dropbear)\" -R -E -F -p {port}; fi; \
+         if command -v dropbear >/dev/null 2>&1; then eval \"exec \\\"$(command -v dropbear)\\\" -R -E -F -p {port} $KEY_ARGS\"; fi; \
          for b in /system/bin/sshd /system/xbin/sshd /data/local/tmp/sshd; do \
              if [ -x \"$b\" ]; then exec \"$b\" -D -p {port}; fi; \
          done; \

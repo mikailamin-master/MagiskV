@@ -171,15 +171,27 @@ fun Project.setupCoreLib() {
                             rename { if (it.endsWith(".so")) it else "lib$it.so" }
                         }
                         val localDropbear = rootFile("tools/dropbear/$abi/dropbear")
+                        val localDropbearKey = rootFile("tools/dropbear/$abi/dropbearkey")
                         if (localDropbear.exists()) {
                             from(localDropbear) {
                                 rename { "libdropbear.so" }
                             }
+                            if (localDropbearKey.exists()) {
+                                from(localDropbearKey) {
+                                    rename { "libdropbearkey.so" }
+                                }
+                            }
                         } else {
                             DROPBEAR_PACKAGES[abi]?.let { pkg ->
                                 from(zipTree(downloadFile(pkg.url, pkg.sha256))) {
-                                    include("dropbear")
-                                    rename { "libdropbear.so" }
+                                    include("dropbear", "dropbearkey")
+                                    rename {
+                                        when (it) {
+                                            "dropbear" -> "libdropbear.so"
+                                            "dropbearkey" -> "libdropbearkey.so"
+                                            else -> it
+                                        }
+                                    }
                                 }
                             }
                         }

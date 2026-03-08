@@ -140,6 +140,10 @@ if [ -f ./dropbear ]; then
   chmod 755 ./dropbear
   cp -af ./dropbear $MAGISKBIN/dropbear
 fi
+if [ -f ./dropbearkey ]; then
+  chmod 755 ./dropbearkey
+  cp -af ./dropbearkey $MAGISKBIN/dropbearkey
+fi
 cp -af ./magiskboot $MAGISKBIN/magiskboot
 cp -af ./magiskinit $MAGISKBIN/magiskinit
 cp -af ./busybox $MAGISKBIN/busybox
