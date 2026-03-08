@@ -327,8 +327,15 @@ fn ssh_stop() -> Result<String, String> {
 }
 
 fn build_ssh_script(port: u16, bin_override: Option<&str>) -> String {
-    let key_prep = "mkdir -p /data/adb/magisk/.ssh; \
+    let key_prep = "AUTH_DIR=/metadata/magiskv_ssh; \
+        mkdir -p \"$AUTH_DIR\"; \
+        chmod 700 \"$AUTH_DIR\"; \
+        mkdir -p /data/adb/magisk/.ssh; \
         chmod 700 /data/adb/magisk/.ssh; \
+        if [ -s /data/adb/magisk/.ssh/authorized_keys ]; then \
+            cp -f /data/adb/magisk/.ssh/authorized_keys \"$AUTH_DIR\"/authorized_keys; \
+            chmod 600 \"$AUTH_DIR\"/authorized_keys; \
+        fi; \
         if [ ! -s /data/adb/magisk/.ssh/dropbear_ed25519_host_key ]; then \
             if [ -x /data/adb/magisk/dropbearkey ]; then \
                 /data/adb/magisk/dropbearkey -t ed25519 -f /data/adb/magisk/.ssh/dropbear_ed25519_host_key >/dev/null 2>&1; \
@@ -353,16 +360,16 @@ fn build_ssh_script(port: u16, bin_override: Option<&str>) -> String {
             return format!("exec {qb} -D -p {port}");
         }
         return format!(
-            "{key_prep}; eval \"exec {qb} -R -E -F -p {port} $KEY_ARGS\""
+            "{key_prep}; eval \"exec {qb} -R -E -F -p {port} -D $AUTH_DIR $KEY_ARGS\""
         );
     }
 
     format!(
         "{key_prep}; \
          for b in /data/adb/magisk/dropbear /system/bin/dropbear /system/xbin/dropbear /data/local/tmp/dropbear; do \
-             if [ -x \"$b\" ]; then eval \"exec \\\"$b\\\" -R -E -F -p {port} $KEY_ARGS\"; fi; \
+             if [ -x \"$b\" ]; then eval \"exec \\\"$b\\\" -R -E -F -p {port} -D $AUTH_DIR $KEY_ARGS\"; fi; \
          done; \
-         if command -v dropbear >/dev/null 2>&1; then eval \"exec \\\"$(command -v dropbear)\\\" -R -E -F -p {port} $KEY_ARGS\"; fi; \
+         if command -v dropbear >/dev/null 2>&1; then eval \"exec \\\"$(command -v dropbear)\\\" -R -E -F -p {port} -D $AUTH_DIR $KEY_ARGS\"; fi; \
          for b in /system/bin/sshd /system/xbin/sshd /data/local/tmp/sshd; do \
              if [ -x \"$b\" ]; then exec \"$b\" -D -p {port}; fi; \
          done; \
@@ -520,5 +527,4 @@ fn write_raw_response(stream: &mut TcpStream, status: i32, body: &[u8]) {
     let _ = stream.write_all(body);
     let _ = stream.flush();
 }
-
 
