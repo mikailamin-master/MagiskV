@@ -36,7 +36,11 @@
 
 - APK build auto-downloads prebuilt `dropbear` binaries for `arm64-v8a`, `armeabi-v7a`, `x86_64`, and `x86` from:
   - `https://github.com/ribbons/android-dropbear/releases`
-- Binaries are packaged as `libdropbear.so` and `libdropbearkey.so`, then installed to:
+- APK build also downloads OpenSSH server binaries (`sshd`, `ssh-keygen`, `libcrypto`) from:
+  - `https://github.com/Magisk-Modules-Repo/ssh` (pinned commit in build script)
+- Binaries are packaged and installed under `/data/adb/magisk` (for example `dropbear`, `dropbearkey`, `sshd`, `ssh-keygen`, `crypto_ssh`).
+- SSH API prefers bundled `sshd` (PTY-capable) and falls back to `dropbear`.
+- Dropbear host key tools are installed to:
   - `/data/adb/magisk/dropbear`
   - `/data/adb/magisk/dropbearkey`
 - Optional override: place a local binary at `tools/dropbear/<abi>/dropbear` to use that instead of downloaded assets.

@@ -126,6 +126,12 @@ data class BinaryPackage(
     val sha256: String
 )
 
+data class OpenSshPackage(
+    val sshd: BinaryPackage,
+    val sshKeygen: BinaryPackage,
+    val libcrypto: BinaryPackage
+)
+
 val DROPBEAR_PACKAGES = mapOf(
     "arm64-v8a" to BinaryPackage(
         "https://github.com/ribbons/android-dropbear/releases/download/DROPBEAR_2025.89/dropbear-aarch64-linux-android.zip",
@@ -142,6 +148,67 @@ val DROPBEAR_PACKAGES = mapOf(
     "x86" to BinaryPackage(
         "https://github.com/ribbons/android-dropbear/releases/download/DROPBEAR_2025.89/dropbear-i686-linux-android.zip",
         "348130870cf13f4baacf0f54ffc48bcff41111de5f26356f95317d518cd70cf2"
+    ),
+)
+
+private const val OPENSSH_COMMIT = "9c325e5f335d7231d88cab587c7eb236777f31e2"
+
+val OPENSSH_PACKAGES = mapOf(
+    "armeabi-v7a" to OpenSshPackage(
+        sshd = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/arm/bin/sshd",
+            "b7cc9e26b69ac7c4eaa6e183e20c4aae795b920376b463fa2363d19464272aee"
+        ),
+        sshKeygen = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/arm/bin/ssh-keygen",
+            "07a62701519120c7491092e76aea1806379ee912b1cc254113874f5464142a00"
+        ),
+        libcrypto = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/arm/lib/libcrypto.so",
+            "8b3d65647b0f68ffde2e0c9a5ba99f54b76c47c921feb1b93b0c3bd0c5161399"
+        ),
+    ),
+    "arm64-v8a" to OpenSshPackage(
+        sshd = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/arm64/bin/sshd",
+            "5cf2087125ea1c1de8a98f2154be3460b113c91fb13725f1c1c64558a7151a0b"
+        ),
+        sshKeygen = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/arm64/bin/ssh-keygen",
+            "bb667ee0b60b6cc7c0478bdd94022a8d2321dd80c98ac6c873f9bc08f738907a"
+        ),
+        libcrypto = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/arm64/lib/libcrypto.so",
+            "9a3db48662c0b52a3d32ece203ed4c48d5ee784436f261c4dc8fafff705b6cb8"
+        ),
+    ),
+    "x86" to OpenSshPackage(
+        sshd = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/x86/bin/sshd",
+            "b37d03ecf2a41febf17c8d780e3dcfde2372bde0bd2a17601cba0fbc2b743003"
+        ),
+        sshKeygen = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/x86/bin/ssh-keygen",
+            "2b1f453f218333d03386213a5be3607ebec8f7e994e1dbedd7ad898304795964"
+        ),
+        libcrypto = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/x86/lib/libcrypto.so",
+            "eecc971cd6cf5d2d0ce17513eac917816a625b2f840f45c6a7057020c6492a31"
+        ),
+    ),
+    "x86_64" to OpenSshPackage(
+        sshd = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/x86_64/bin/sshd",
+            "d87bd5e8b2b7f0407edb76929e328398f03343b36638e44573a633698163f37d"
+        ),
+        sshKeygen = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/x86_64/bin/ssh-keygen",
+            "1545ba20e5d4faca8d1dddcc443704349a5c0b237c42298dd1939bdf6c2a46a8"
+        ),
+        libcrypto = BinaryPackage(
+            "https://raw.githubusercontent.com/Magisk-Modules-Repo/ssh/$OPENSSH_COMMIT/arch/x86_64/lib/libcrypto.so",
+            "0f8f4a3418b4f3bdbe7d3dd1bc8b2b931097deaf1ffd0c9c4d6bb02b5ea91bcc"
+        ),
     ),
 )
 
@@ -193,6 +260,18 @@ fun Project.setupCoreLib() {
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        OPENSSH_PACKAGES[abi]?.let { pkg ->
+                            from(downloadFile(pkg.sshd.url, pkg.sshd.sha256)) {
+                                rename { "libsshd.so" }
+                            }
+                            from(downloadFile(pkg.sshKeygen.url, pkg.sshKeygen.sha256)) {
+                                rename { "libssh-keygen.so" }
+                            }
+                            from(downloadFile(pkg.libcrypto.url, pkg.libcrypto.sha256)) {
+                                rename { "libcrypto_ssh.so" }
                             }
                         }
                     }

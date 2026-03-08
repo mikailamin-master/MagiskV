@@ -336,6 +336,28 @@ fn build_ssh_script(port: u16, bin_override: Option<&str>) -> String {
             cp -f /data/adb/magisk/.ssh/authorized_keys \"$AUTH_DIR\"/authorized_keys; \
             chmod 600 \"$AUTH_DIR\"/authorized_keys; \
         fi; \
+        if [ -x /data/adb/magisk/sshd ]; then \
+            [ -e /data/adb/magisk/libcrypto.so ] || { [ -e /data/adb/magisk/crypto_ssh ] && ln -sf /data/adb/magisk/crypto_ssh /data/adb/magisk/libcrypto.so; }; \
+            if [ -x /data/adb/magisk/ssh-keygen ] && [ ! -s \"$AUTH_DIR\"/ssh_host_ed25519_key ]; then \
+                /data/adb/magisk/ssh-keygen -q -t ed25519 -N '' -f \"$AUTH_DIR\"/ssh_host_ed25519_key >/dev/null 2>&1; \
+            fi; \
+            cat > \"$AUTH_DIR\"/sshd_config <<'EOF'\n\
+Port __PORT__\n\
+ListenAddress 0.0.0.0\n\
+HostKey __AUTHDIR__/ssh_host_ed25519_key\n\
+PermitRootLogin yes\n\
+PasswordAuthentication no\n\
+KbdInteractiveAuthentication no\n\
+ChallengeResponseAuthentication no\n\
+PubkeyAuthentication yes\n\
+AuthorizedKeysFile __AUTHDIR__/authorized_keys\n\
+PidFile /data/local/tmp/magiskv_sshd.pid\n\
+UsePAM no\n\
+PrintMotd no\n\
+PermitTTY yes\n\
+EOF\n\
+            sed -i \"s#__PORT__#{port}#g; s#__AUTHDIR__#$AUTH_DIR#g\" \"$AUTH_DIR\"/sshd_config; \
+        fi; \
         if [ ! -s /data/adb/magisk/.ssh/dropbear_ed25519_host_key ]; then \
             if [ -x /data/adb/magisk/dropbearkey ]; then \
                 /data/adb/magisk/dropbearkey -t ed25519 -f /data/adb/magisk/.ssh/dropbear_ed25519_host_key >/dev/null 2>&1; \
@@ -357,7 +379,13 @@ fn build_ssh_script(port: u16, bin_override: Option<&str>) -> String {
     if let Some(bin) = bin_override {
         let qb = shell_quote(bin);
         if detect_daemon_name_from_path(bin) == "sshd" {
-            return format!("exec {qb} -D -p {port}");
+            return format!(
+                "{key_prep}; \
+                 if [ \"{qb}\" = '/data/adb/magisk/sshd' ]; then \
+                     exec env LD_LIBRARY_PATH=/data/adb/magisk:$LD_LIBRARY_PATH {qb} -D -e -f \"$AUTH_DIR\"/sshd_config; \
+                 fi; \
+                 exec {qb} -D -p {port}"
+            );
         }
         return format!(
             "{key_prep}; eval \"exec {qb} -R -E -F -p {port} -D $AUTH_DIR $KEY_ARGS\""
@@ -366,6 +394,9 @@ fn build_ssh_script(port: u16, bin_override: Option<&str>) -> String {
 
     format!(
         "{key_prep}; \
+         if [ -x /data/adb/magisk/sshd ] && [ -f \"$AUTH_DIR\"/sshd_config ]; then \
+             exec env LD_LIBRARY_PATH=/data/adb/magisk:$LD_LIBRARY_PATH /data/adb/magisk/sshd -D -e -f \"$AUTH_DIR\"/sshd_config; \
+         fi; \
          for b in /data/adb/magisk/dropbear /system/bin/dropbear /system/xbin/dropbear /data/local/tmp/dropbear; do \
              if [ -x \"$b\" ]; then eval \"exec \\\"$b\\\" -R -E -F -p {port} -D $AUTH_DIR $KEY_ARGS\"; fi; \
          done; \
@@ -374,7 +405,7 @@ fn build_ssh_script(port: u16, bin_override: Option<&str>) -> String {
              if [ -x \"$b\" ]; then exec \"$b\" -D -p {port}; fi; \
          done; \
          if command -v sshd >/dev/null 2>&1; then exec \"$(command -v sshd)\" -D -p {port}; fi; \
-         echo 'No SSH daemon found. Install dropbear/sshd, pass &bin=/full/path/to/daemon, or package tools/dropbear/<abi>/dropbear into the APK build.' >&2; \
+         echo 'No SSH daemon found. Install dropbear/sshd, pass &bin=/full/path/to/daemon, or package SSH binaries into the APK build.' >&2; \
          exit 127"
     )
 }
@@ -396,7 +427,7 @@ fn ssh_detect_report() -> String {
         .arg("-c")
         .arg(
             "echo 'search_paths:'; \
-             for b in /data/adb/magisk/dropbear /system/bin/dropbear /system/xbin/dropbear /data/local/tmp/dropbear /system/bin/sshd /system/xbin/sshd /data/local/tmp/sshd; do \
+             for b in /data/adb/magisk/sshd /data/adb/magisk/ssh-keygen /data/adb/magisk/dropbear /data/adb/magisk/dropbearkey /system/bin/dropbear /system/xbin/dropbear /data/local/tmp/dropbear /system/bin/sshd /system/xbin/sshd /data/local/tmp/sshd; do \
                  [ -x \"$b\" ] && echo \"$b\"; \
              done; \
              echo 'path_lookup:'; \
@@ -423,6 +454,15 @@ fn ssh_detect_report() -> String {
 }
 
 fn detect_ssh_daemon() -> Option<String> {
+    if Command::new("/system/bin/sh")
+        .arg("-c")
+        .arg("[ -x /data/adb/magisk/sshd ]")
+        .status()
+        .ok()?
+        .success()
+    {
+        return Some("sshd".to_string());
+    }
     if Command::new("/system/bin/sh")
         .arg("-c")
         .arg("[ -x /data/adb/magisk/dropbear ]")
@@ -527,4 +567,3 @@ fn write_raw_response(stream: &mut TcpStream, status: i32, body: &[u8]) {
     let _ = stream.write_all(body);
     let _ = stream.flush();
 }
-
