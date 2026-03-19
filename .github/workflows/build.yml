@@ -70,14 +70,6 @@ jobs:
               uses: ./.github/actions/setup
               with:
                   is-asset-build: true
-
-            - name: Replace version
-              run: |
-                  if [ "${{ matrix.build_type }}" = "release" ]; then
-                      sed -i 's/^version=.*/version=MTR/' config.prop
-                  else
-                      sed -i 's/^version=.*/version=MTD/' config.prop
-                  fi
             - name: Build Magisk
               run: |
                   if [ "${{ matrix.build_type }}" = "release" ]; then
