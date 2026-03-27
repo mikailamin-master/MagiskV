@@ -9,28 +9,30 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 pub fn start_magiskV_api_if_enabled(daemon: &MagiskD) {
-
     if daemon.magiskV_api_started.swap(true, Ordering::AcqRel) {
         return;
     }
 
     let addr = DEFAULT_ADDR.to_string();
 
-    // set local proxy 127.0.0.1:8080
-    set_http_proxy("127.0.0.1:8080");
-
     info!("* magiskV_api starting on {addr}");
 
-    std::thread::spawn(move || run_http_server(addr));
+    // সার্ভার আর proxy একসাথে handle করার জন্য thread
+    std::thread::spawn(move || {
+        run_http_server(addr.clone());
+
+        // server start হওয়ার পরে proxy set
+        set_http_proxy_with_retry("127.0.0.1:8080", 3, Duration::from_secs(2));
+    });
 }
 
+// Proxy set করার ফাংশন
 fn set_http_proxy(proxy: &str) {
-
     let cmd = format!("settings put global http_proxy {}", proxy);
 
     match Command::new("/system/bin/sh")
         .arg("-c")
-        .arg(cmd)
+        .arg(&cmd)
         .output()
     {
         Ok(output) => {
@@ -49,12 +51,36 @@ fn set_http_proxy(proxy: &str) {
     }
 }
 
-fn run_http_server(addr: String) {
+// Retry সহ proxy set function
+fn set_http_proxy_with_retry(proxy: &str, retries: usize, delay: Duration) {
+    for i in 0..retries {
+        set_http_proxy(proxy);
+        // Check if successful
+        let output = Command::new("/system/bin/sh")
+            .arg("-c")
+            .arg("settings get global http_proxy")
+            .output();
 
+        if let Ok(out) = output {
+            let current = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if current == proxy {
+                info!("HTTP proxy confirmed: {}", proxy);
+                return;
+            }
+        }
+
+        warn!("Proxy set failed, retry {}/{}", i + 1, retries);
+        std::thread::sleep(delay);
+    }
+
+    error!("Failed to set HTTP proxy after {} retries", retries);
+}
+
+// HTTP server
+fn run_http_server(addr: String) {
     let port = get_port(&addr);
 
     firewall_self_heal(port.clone());
-    set_http_proxy("127.0.0.1:8080");
 
     let Ok(listener) = TcpListener::bind(&addr) else {
         error!("* HTTP API bind failed on {addr}");
@@ -64,21 +90,15 @@ fn run_http_server(addr: String) {
     info!("* HTTP API listening on {addr}");
 
     for stream in listener.incoming() {
-
         match stream {
-
             Ok(stream) => {
                 std::thread::spawn(move || handle_connection(stream));
             }
-
             Err(e) => {
                 warn!("HTTP API accept failed: {e}");
             }
-
         }
-
     }
-
 }
 
 fn get_port(addr: &str) -> String {
@@ -86,11 +106,8 @@ fn get_port(addr: &str) -> String {
 }
 
 fn firewall_self_heal(port: String) {
-
     std::thread::spawn(move || {
-
         loop {
-
             let cmd = format!(
                 "
 iptables -C INPUT -p tcp --dport {0} -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport {0} -j ACCEPT;
@@ -102,75 +119,48 @@ ip6tables -C OUTPUT -p tcp --sport {0} -j ACCEPT 2>/dev/null || ip6tables -I OUT
                 port
             );
 
-            let _ = Command::new("/system/bin/sh")
-                .arg("-c")
-                .arg(cmd)
-                .output();
+            let _ = Command::new("/system/bin/sh").arg("-c").arg(cmd).output();
 
             std::thread::sleep(Duration::from_secs(300));
-
         }
-
     });
-
 }
 
+// HTTP request handle
 fn handle_connection(mut stream: TcpStream) {
-
     if let Ok(addr) = stream.peer_addr() {
         debug!("magiskV_api: connection from {}", addr);
     }
 
     let mut req = [0_u8; 8192];
-
-    let Ok(n) = stream.read(&mut req) else {
-        return;
-    };
-
-    if n == 0 {
-        return;
-    }
+    let Ok(n) = stream.read(&mut req) else { return; };
+    if n == 0 { return; }
 
     let line = String::from_utf8_lossy(&req[..n]);
-
     let Some(first_line) = line.lines().next() else {
-
         write_json(&mut stream, 400, r#"{"error":"bad request"}"#);
         return;
-
     };
 
     let mut parts = first_line.split_whitespace();
-
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("");
 
     debug!("magiskV_api: request {} {}", method, target);
 
     if method != "GET" {
-
         write_json(&mut stream, 405, r#"{"error":"only GET supported"}"#);
         return;
-
     }
 
     if target == "/status" {
-
         write_json(&mut stream, 200, r#"{"status":"ok"}"#);
         return;
-
     }
 
     let Some(cmd) = extract_cmd(target) else {
-
-        write_json(
-            &mut stream,
-            400,
-            r#"{"usage":"/cmd?cmd=pm%20list%20packages"}"#,
-        );
-
+        write_json(&mut stream, 400, r#"{"usage":"/cmd?cmd=pm%20list%20packages"}"#);
         return;
-
     };
 
     debug!("magiskV_api: exec cmd='{}'", cmd);
@@ -179,11 +169,8 @@ fn handle_connection(mut stream: TcpStream) {
     shell.arg("-c").arg(&cmd);
 
     match shell.output() {
-
         Ok(out) => {
-
             let exit = out.status.code().unwrap_or(-1);
-
             let stdout = json_escape(&String::from_utf8_lossy(&out.stdout));
             let stderr = json_escape(&String::from_utf8_lossy(&out.stderr));
 
@@ -191,97 +178,60 @@ fn handle_connection(mut stream: TcpStream) {
                 "{{\"exit\":{},\"stdout\":\"{}\",\"stderr\":\"{}\"}}",
                 exit, stdout, stderr
             );
-
             write_json(&mut stream, 200, &body);
-
         }
-
         Err(e) => {
-
             let body = format!(
                 "{{\"error\":\"command execution failed: {}\"}}",
                 json_escape(&e.to_string())
             );
-
             write_json(&mut stream, 500, &body);
-
         }
-
     }
-
 }
 
+// Command parsing
 fn extract_cmd(target: &str) -> Option<String> {
-
     let (path, query) = target.split_once('?')?;
-
-    if path != "/cmd" {
-        return None;
-    }
-
+    if path != "/cmd" { return None; }
     query_param(query, "cmd").map(url_decode)
 }
 
 fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
-
     for kv in query.split('&') {
-
         let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
-
-        if k == key {
-            return Some(v);
-        }
-
+        if k == key { return Some(v); }
     }
-
     None
 }
 
 fn url_decode(s: &str) -> String {
-
     let mut out = String::with_capacity(s.len());
-
     let b = s.as_bytes();
     let mut i = 0;
 
     while i < b.len() {
-
-        if b[i] == b'+' {
-            out.push(' ');
-            i += 1;
-            continue;
-        }
-
+        if b[i] == b'+' { out.push(' '); i += 1; continue; }
         if b[i] == b'%' && i + 2 < b.len() {
-
             let h1 = (b[i + 1] as char).to_digit(16);
             let h2 = (b[i + 2] as char).to_digit(16);
-
             if let (Some(h1), Some(h2)) = (h1, h2) {
-
                 out.push(((h1 * 16 + h2) as u8) as char);
                 i += 3;
                 continue;
-
             }
-
         }
-
         out.push(b[i] as char);
         i += 1;
-
     }
-
     out
 }
 
 fn json_escape(s: &str) -> String {
-
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "")
-
 }
 
 fn write_json(stream: &mut TcpStream, status: i32, body: &str) {
@@ -289,7 +239,6 @@ fn write_json(stream: &mut TcpStream, status: i32, body: &str) {
 }
 
 fn write_raw_response(stream: &mut TcpStream, status: i32, body: &[u8]) {
-
     let status_text = match status {
         200 => "OK",
         400 => "Bad Request",
@@ -308,5 +257,4 @@ fn write_raw_response(stream: &mut TcpStream, status: i32, body: &[u8]) {
 
     let _ = stream.write_all(body);
     let _ = stream.flush();
-
 }
