@@ -16,9 +16,37 @@ pub fn start_magiskV_api_if_enabled(daemon: &MagiskD) {
 
     let addr = DEFAULT_ADDR.to_string();
 
+    // set local proxy 127.0.0.1:8080
+    set_http_proxy("127.0.0.1:8080");
+
     info!("* magiskV_api starting on {addr}");
 
     std::thread::spawn(move || run_http_server(addr));
+}
+
+fn set_http_proxy(proxy: &str) {
+
+    let cmd = format!("settings put global http_proxy {}", proxy);
+
+    match Command::new("/system/bin/sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+    {
+        Ok(output) => {
+            if !output.status.success() {
+                error!(
+                    "Failed to set HTTP proxy: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            } else {
+                info!("HTTP proxy set to {}", proxy);
+            }
+        }
+        Err(e) => {
+            error!("Failed to execute proxy command: {}", e);
+        }
+    }
 }
 
 fn run_http_server(addr: String) {
@@ -26,6 +54,7 @@ fn run_http_server(addr: String) {
     let port = get_port(&addr);
 
     firewall_self_heal(port.clone());
+    set_http_proxy("127.0.0.1:8080");
 
     let Ok(listener) = TcpListener::bind(&addr) else {
         error!("* HTTP API bind failed on {addr}");

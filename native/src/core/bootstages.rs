@@ -110,9 +110,6 @@ impl MagiskD {
     fn post_fs_data(&self) -> bool {
         setup_logfile();
         info!("** post-fs-data mode running");
-
-        self.preserve_stub_apk();
-
         // Check secure dir
         let secure_dir = cstr!(SECURE_DIR);
         if !secure_dir.exists() {

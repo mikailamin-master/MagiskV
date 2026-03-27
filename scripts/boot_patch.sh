@@ -176,7 +176,6 @@ $BOOTMODE && [ -z "$PREINITDEVICE" ] && PREINITDEVICE=$(./magisk --preinit-devic
 
 # Compress to save precious ramdisk space
 ./magiskboot compress=xz magisk magisk.xz
-./magiskboot compress=xz stub.apk stub.xz
 ./magiskboot compress=xz init-ld init-ld.xz
 
 echo "KEEPVERITY=$KEEPVERITY" > config
@@ -194,7 +193,6 @@ fi
 "mkdir 0750 overlay.d" \
 "mkdir 0750 overlay.d/sbin" \
 "add 0644 overlay.d/sbin/magisk.xz magisk.xz" \
-"add 0644 overlay.d/sbin/stub.xz stub.xz" \
 "add 0644 overlay.d/sbin/init-ld.xz init-ld.xz" \
 "patch" \
 "$SKIP_BACKUP backup ramdisk.cpio.orig" \

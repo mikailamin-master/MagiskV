@@ -2,9 +2,9 @@ name: Build MagiskV
 
 on:
     push:
-        branches: [main, master]
+        branches: [main, test]
     pull_request:
-        branches: [main, master]
+        branches: [main, test]
     workflow_dispatch:
 
 jobs:
@@ -85,33 +85,3 @@ jobs:
               with:
                   name: magisk_${{ matrix.build_type }}
                   path: out/app-release.apk
-
-            - name: Create GitHub Release
-              env:
-                  GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-              run: |
-                  if [ "${{ matrix.build_type }}" = "release" ]; then
-                      tag="build"
-                      file="out/app-release.apk"
-                  else
-                      tag="canary_build"
-                      file="out/app-debug.apk"
-                  fi
-                  commit=$(git rev-parse --short HEAD)
-                  branch=${GITHUB_REF#refs/heads/}
-                  build_time=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-                  body=$(printf "MagiskV automated build\n\nBranch: %s\nCommit: %s\nBuild type: %s\nBuild time: %s\nActor: %s\nRepository: %s\n" \
-                      "$branch" \
-                      "$commit" \
-                      "${{ matrix.build_type }}" \
-                      "$build_time" \
-                      "$GITHUB_ACTOR" \
-                      "$GITHUB_REPOSITORY")
-                  gh release delete "$tag" -y || true
-                  git tag -d "$tag" || true
-                  git push origin :refs/tags/$tag || true
-                  git tag "$tag"
-                  git push origin "$tag"
-                  gh release create "$tag" "$file" \
-                      --title "MagiskV $tag" \
-                      --notes "$body"
