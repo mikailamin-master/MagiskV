@@ -130,7 +130,7 @@
                         android:textAppearance="@style/AppearanceFoundation.Title" />
                         
                     <include
-                        item="@{DeveloperItem.MIKAILAMIN.INSTANCE}"
+                        item="@{DeveloperItem.iammuntakim.INSTANCE}"
                         layout="@layout/item_developer"
                         viewModel="@{viewModel}"
                         android:layout_width="wrap_content"
