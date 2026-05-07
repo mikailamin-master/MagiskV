@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 name: Build MagiskV
+=======
+name: Build SuperSU
+>>>>>>> aaba9f88a (Publishing files to MagiskV)
 
 on:
     push:
@@ -100,7 +104,11 @@ jobs:
                   commit=$(git rev-parse --short HEAD)
                   branch=${GITHUB_REF#refs/heads/}
                   build_time=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+<<<<<<< HEAD
                   body=$(printf "MagiskV automated build\n\nBranch: %s\nCommit: %s\nBuild type: %s\nBuild time: %s\nActor: %s\nRepository: %s\n" \
+=======
+                  body=$(printf "SuperSU automated build\n\nBranch: %s\nCommit: %s\nBuild type: %s\nBuild time: %s\nActor: %s\nRepository: %s\n" \
+>>>>>>> aaba9f88a (Publishing files to MagiskV)
                       "$branch" \
                       "$commit" \
                       "${{ matrix.build_type }}" \
@@ -113,5 +121,9 @@ jobs:
                   git tag "$tag"
                   git push origin "$tag"
                   gh release create "$tag" "$file" \
+<<<<<<< HEAD
                       --title "MagiskV $tag" \
+=======
+                      --title "Release $tag" \
+>>>>>>> aaba9f88a (Publishing files to MagiskV)
                       --notes "$body"
