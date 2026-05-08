@@ -26,11 +26,8 @@
     <application
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="false"
-<<<<<<< HEAD
         android:label="MagiskV"
-=======
         android:label="SuperSU"
->>>>>>> aaba9f88a (Publishing files to MagiskV)
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Translucent.NoTitleBar" />
