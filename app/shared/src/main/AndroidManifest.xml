@@ -27,7 +27,6 @@
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="false"
         android:label="MagiskV"
-        android:label="SuperSU"
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Translucent.NoTitleBar" />

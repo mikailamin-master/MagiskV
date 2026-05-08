@@ -30,7 +30,7 @@ private interface CanyieImpl : Dev {
 }
 
 private interface MAImpl : Dev {
-    override val name get() = "iammuntakim"
+    override val name get() = "mikailamin"
 }
 
 sealed class DeveloperItem : Dev {
@@ -79,10 +79,10 @@ sealed class DeveloperItem : Dev {
             )
     }
 
-    object iammuntakim : DeveloperItem(), MAImpl {
+    object MIKAILAMIN : DeveloperItem(), MAImpl {
         override val items =
             listOf(
-                object : IconLink.Github.User() { override val name = "iammuntakim" },
+                object : IconLink.Github.User() { override val name = "mikailamin-master" },
                 IconLink.Source
             )
     }
