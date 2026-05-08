@@ -170,7 +170,7 @@
     <string name="settings_su_tapjack_summary">Das Dialogfeld der Superuser-Eingabeaufforderung reagiert nicht auf Eingaben, wenn es durch ein anderes Fenster oder Überlagerung verdeckt wird</string>
     <string name="settings_su_auth_title">Benutzerauthentifizierung</string>
     <string name="settings_su_auth_summary">Nachfrage nach Benutzerauthentifizierung bei Superuser-Anfragen</string>
-    <string name="settings_su_auth_insecure">Auf dem Gerät ist keine Authentifizierungsmethode konfiguriert</string>>
+    <string name="settings_su_auth_insecure">Auf dem Gerät ist keine Authentifizierungsmethode konfiguriert</string>
     <string name="settings_customization">Personalisierung</string>
     <string name="setting_add_shortcut_summary">Hinzufügen einer hübschen Startbildschirm-Verknüpfung, falls der Name und das Symbol nach dem Ausblenden der App schwer zu erkennen sind</string>
     <string name="settings_doh_title">DNS über HTTPS</string>
