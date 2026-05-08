@@ -2,17 +2,11 @@
 <resources>
 
     <!-- Static strings -->
-<<<<<<< HEAD
     <string name="magisk" translatable="false">MagiskV</string>
     <string name="zygisk" translatable="false">Zygisk</string>
-=======
     <string name="magisk" translatable="false">SuperSU</string>
-<<<<<<< HEAD
     <string name="zygisk" translatable="false">Zysote</string>
->>>>>>> aaba9f88a (Publishing files to MagiskV)
-=======
     <string name="zygisk" translatable="false">Zygisk</string>
->>>>>>> b5affaebd (Fix permissions and stage all files)
     <string name="empty" translatable="false"/>
 
     <string name="paypal" translatable="false">PayPal</string>
