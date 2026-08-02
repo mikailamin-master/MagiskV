@@ -13,6 +13,9 @@ pub fn start_v_api_if_enabled(daemon: &MagiskD) {
         return;
     }
     let addr = DEFAULT_ADDR.to_string();
+    let port = get_port(&addr);
+
+    start_discovery_server(port.clone());
     info!("* v_api starting on {addr}");
     std::thread::spawn(move || run_http_server(addr));
 }
@@ -37,7 +40,40 @@ fn run_http_server(addr: String) {
             }
         }
     }
+}
 
+fn start_discovery_server(http_port: String) {
+    std::thread::spawn(move || {
+        let socket = match UdpSocket::bind("0.0.0.0:26260") {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Discovery bind failed: {}", e);
+                return;
+            }
+        };
+        let _ = socket.set_broadcast(true);
+        info!("* Discovery listening on UDP 26260");
+        let mut buf = [0u8; 1024];
+        loop {
+            match socket.recv_from(&mut buf) {
+                Ok((len, src)) => {
+                    let msg = String::from_utf8_lossy(&buf[..len]);
+                    if msg.trim() != "MAGISKV_DISCOVER_V1" {
+                        continue;
+                    }
+                    debug!("Discovery request from {}", src);
+                    let reply = format!(
+                        r#"{{"magic":"MAGISKV","version":1,"port":{},"status":"ok"}}"#,
+                        http_port
+                    );
+                    let _ = socket.send_to(reply.as_bytes(), src);
+                }
+                Err(e) => {
+                    warn!("Discovery recv failed: {}", e);
+                }
+            }
+        }
+    });
 }
 
 fn get_port(addr: &str) -> String {
